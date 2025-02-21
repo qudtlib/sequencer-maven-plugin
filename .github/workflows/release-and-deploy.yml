@@ -50,6 +50,8 @@ jobs:
         id: checkTag
         with:
           tag: v${{ inputs.release_version }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Fail if tag v${{ inputs.release_version }} exists
         if: steps.checkTag.outputs.exists == 'true'
         run: |
