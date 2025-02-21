@@ -3,6 +3,8 @@
 # releases the project with specified version
 # deploys it to the sonatype staging repo
 name: Release and deploy to Sonatype staging repo
+permissions:
+  contents: write
 env:
   MAVEN_USERNAME: ${{ secrets.MAVEN_USERNAME }}
   MAVEN_CENTRAL_TOKEN: ${{ secrets.MAVEN_CENTRAL_TOKEN }}
