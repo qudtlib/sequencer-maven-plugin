@@ -4,7 +4,6 @@
 # deploys it to the sonatype staging repo
 name: Release and deploy to Sonatype staging repo
 env:
-  GITHUB_PAT: ${{ secrets.QUDTLIB_BOT_GITHUB_TOKEN }}
   MAVEN_USERNAME: ${{ secrets.MAVEN_USERNAME }}
   MAVEN_CENTRAL_TOKEN: ${{ secrets.MAVEN_CENTRAL_TOKEN }}
   MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
@@ -20,8 +19,6 @@ on:
         required: true
         type: string
     secrets:
-      QUDTLIB_BOT_GITHUB_TOKEN:
-        required: true
       MAVEN_USERNAME:
         required: true
       MAVEN_CENTRAL_TOKEN:
@@ -44,7 +41,7 @@ jobs:
           curl -sS -f -I -H "Authorization: Bearer ${token}" https://api.github.com | grep 'x-oauth-scopes:' | grep 'repo' > /dev/null && exit 0 || echo "Token does not have repo scope on ${repo}" >> ${GITHUB_STEP_SUMMARY}
         env:
           repo: ${{ github.repository }}
-          token: ${{ secrets.QUDTLIB_BOT_GITHUB_TOKEN }}
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       # check if a tag already exists for the version we want to publish - in that case the workflow
       # will fail later, so let us make it fail fast
@@ -53,8 +50,6 @@ jobs:
         id: checkTag
         with:
           tag: v${{ inputs.release_version }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.QUDTLIB_BOT_GITHUB_TOKEN }}
       - name: Fail if tag v${{ inputs.release_version }} exists
         if: steps.checkTag.outputs.exists == 'true'
         run: |
@@ -106,8 +101,6 @@ jobs:
       # because the create-pull-request action (see below) will only include unpushed
       # changes in the PR
       - name: Push changes to repository
-        env:
-          GITHUB_TOKEN: ${{ secrets.QUDTLIB_BOT_GITHUB_TOKEN }}
         run: git push origin
 
       # Update changelog unreleased section with new version
@@ -132,7 +125,7 @@ jobs:
       - name: Build with Maven, deploying to sonatype staging repo
         run: mvn -B release:clean release:prepare release:perform -DtagNameFormat="v@{project.version}" -DreleaseVersion=${{ inputs.release_version }} -DdevelopmentVersion=${{ inputs.next_snapshot_version }} -Darguments=-Dgpg.passphrase="$MAVEN_GPG_PASSPHRASE"
         env:
-          password: ${{ secrets.QUDTLIB_BOT_GITHUB_TOKEN }}
+          password: ${{ secrets.GITHUB_TOKEN }}
           MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
 
       # Read version changelog
@@ -148,7 +141,7 @@ jobs:
       - name: Create Pull Request
         uses: peter-evans/create-pull-request@v4
         with:
-          token: ${{ secrets.QUDTLIB_BOT_GITHUB_TOKEN }}
+          token: ${{ secrets.GITHUB_TOKEN }}
           title: Release ${{ inputs.release_version }}
           base: main
           branch: ${{ steps.create_release_branch.outputs.branch_name }}
