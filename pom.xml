@@ -4,7 +4,7 @@
 
     <groupId>io.github.qudtlib</groupId>
     <artifactId>seq-maven-plugin</artifactId>
-    <version>1.0.0</version>
+    <version>1.1-SNAPSHOT</version>
     <packaging>maven-plugin</packaging>
     <name>Maven Seq Plugin</name>
     <url>https://github.com/qudtlib/seq-maven-plugin/</url>
@@ -28,7 +28,7 @@
         <connection>scm:git:https://github.com/qudtlib/seq-maven-plugin.git</connection>
         <developerConnection>scm:git:https://github.com/qudtlib/seq-maven-plugin.git</developerConnection>
         <url>https://github.com/qudtlib/seq-maven-plugin/tree/master</url>
-      <tag>v1.0.0</tag>
+      <tag>HEAD</tag>
   </scm>
 
 
