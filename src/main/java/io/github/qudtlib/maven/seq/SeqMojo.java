@@ -1,5 +1,6 @@
-package io.github.qudtlib.maven.sequencer;
+package io.github.qudtlib.maven.seq;
 
+import java.time.Duration;
 import java.util.*;
 import java.util.stream.Collectors;
 import org.apache.maven.RepositoryUtils;
@@ -20,11 +21,12 @@ import org.codehaus.plexus.configuration.PlexusConfiguration;
 import org.codehaus.plexus.util.xml.Xpp3Dom;
 import org.eclipse.aether.repository.RemoteRepository;
 
-@Mojo(name = "sequence", defaultPhase = LifecyclePhase.NONE, threadSafe = true)
-public class SequencerMojo extends AbstractMojo {
+@Mojo(name = "run", defaultPhase = LifecyclePhase.NONE, threadSafe = true)
+public class SeqMojo extends AbstractMojo {
 
-    @Parameter(name = "executions")
-    private List<ExecutionConfig> executions;
+    /** The list of plugin executions to run sequentially */
+    @Parameter(name = "steps")
+    private List<SequenceStep> steps;
 
     @Parameter(defaultValue = "${session}", readonly = true)
     private MavenSession session;
@@ -36,7 +38,6 @@ public class SequencerMojo extends AbstractMojo {
 
     @Component private MavenPluginManager mavenPluginManager;
 
-    // Inject the Plexus container so we can look up internal components.
     @Component private PlexusContainer container;
 
     @Parameter(defaultValue = "${mojoExecution.executionId}", readonly = true)
@@ -45,26 +46,40 @@ public class SequencerMojo extends AbstractMojo {
     @Parameter(defaultValue = "${mojoExecution.goal}", readonly = true)
     private String mojoGoal;
 
+    /** Label to display in the plugin's log output */
+    @Parameter(defaultValue = "")
+    private String label;
+
+    public String getLabel() {
+        return label;
+    }
+
+    public void setLabel(String label) {
+        this.label = label;
+    }
+
     @Override
     public void execute() throws MojoExecutionException, MojoFailureException {
-        getLog().debug("Raw executions list: " + executions);
-        if (executions == null || executions.isEmpty()) {
-            getLog().info("No executions defined. Nothing to do.");
+        if (steps == null || steps.isEmpty()) {
+            getLog().info("No nested <step> elements defined - Nothing to do.");
             return;
         }
         int index = 0;
-        for (ExecutionConfig config : executions) {
-            if (config.getPluginCoordinates() != null
-                    && !config.getPluginCoordinates().trim().isEmpty()) {
-                resolvePluginCoordinates(config);
+        for (SequenceStep sequenceStep : steps) {
+            if (sequenceStep.getPluginCoordinates() != null
+                    && !sequenceStep.getPluginCoordinates().trim().isEmpty()) {
+                resolvePluginCoordinates(sequenceStep);
             }
             index++;
             String currentExecutionId =
-                    config.getId() != null ? config.getId() : mojoExecutionId + "-" + index;
+                    sequenceStep.getId() != null
+                            ? sequenceStep.getId()
+                            : mojoExecutionId + "-" + index;
 
             // Locate the plugin in the project
             Map<String, Plugin> pluginMap = project.getBuild().getPluginsAsMap();
-            String key = String.format("%s:%s", config.getGroupId(), config.getArtifactId());
+            String key =
+                    String.format("%s:%s", sequenceStep.getGroupId(), sequenceStep.getArtifactId());
             Plugin plugin = pluginMap.get(key);
             if (plugin == null) {
                 throw new MojoExecutionException(
@@ -92,31 +107,31 @@ public class SequencerMojo extends AbstractMojo {
             // Get mojo descriptor
             MojoDescriptor mojoDescriptor;
             try {
-                mojoDescriptor = pluginDescriptor.getMojo(config.getGoal());
+                mojoDescriptor = pluginDescriptor.getMojo(sequenceStep.getGoal());
                 if (mojoDescriptor == null) {
-                    throw new MojoNotFoundException(config.getGoal(), pluginDescriptor);
+                    throw new MojoNotFoundException(sequenceStep.getGoal(), pluginDescriptor);
                 }
                 getLog().debug("Mojo descriptor: " + mojoDescriptor.getGoal());
             } catch (Exception e) {
                 throw new MojoExecutionException(
-                        "Failed to get mojo descriptor for " + config.getGoal(), e);
+                        "Failed to get mojo descriptor for " + sequenceStep.getGoal(), e);
             }
 
             // Create MojoExecution
             MojoExecution mojoExecution = new MojoExecution(mojoDescriptor, currentExecutionId);
             // Get the default configuration from the MojoDescriptor
             Xpp3Dom defaultConfig =
-                    Xpp3DomUtils.ConfigurationConverter.toXpp3Dom(
-                            mojoDescriptor.getMojoConfiguration());
+                    ConfigurationConverter.toXpp3Dom(mojoDescriptor.getMojoConfiguration());
 
-            // Get the user-provided configuration,  merged with the config corresponding to the
-            // executionId, if present
-            Xpp3Dom userConfig = config.getConfiguration();
+            // Get the user-provided configuration
+            Xpp3Dom userConfig = sequenceStep.getConfiguration();
 
             // Merge default and user configurations
             Xpp3Dom mergedConfig =
                     defaultConfig != null
-                            ? Xpp3Dom.mergeXpp3Dom(userConfig, defaultConfig)
+                            ? Xpp3Dom.mergeXpp3Dom(
+                                    userConfig,
+                                    defaultConfig) // do normal merge, not profile-style merge
                             : userConfig;
 
             // Apply the merged configuration
@@ -133,42 +148,89 @@ public class SequencerMojo extends AbstractMojo {
                                         + currentExecutionId
                                         + "; using default mojo configuration");
             }
-
+            String formattedLabel =
+                    getLabel() != null && !getLabel().isEmpty() ? "'" + getLabel() + "' " : "";
             getLog().info(
                             String.format(
-                                    "---- %s: step %d (%s): %s",
+                                    "---- %s: %s%sstep %d (%s) %s starting",
                                     mojoGoal,
+                                    formattedLabel,
+                                    sequenceStep.isSkip() ? "SKIPPING " : "",
                                     index,
                                     currentExecutionId,
-                                    formatCoordinates(config, defaultConfig)));
+                                    formatCoordinates(sequenceStep, defaultConfig)));
+            long startTime = System.currentTimeMillis();
 
             // Execute the mojo using the pluginManager
             try {
-                pluginManager.executeMojo(session, mojoExecution);
+                if (!sequenceStep.isSkip()) {
+                    pluginManager.executeMojo(session, mojoExecution);
+                }
             } catch (PluginParameterException e) {
                 getLog().error(
                                 "Parameter injection failed for "
-                                        + config.getGoal()
+                                        + sequenceStep.getGoal()
                                         + ": "
                                         + e.getMessage());
                 throw new MojoExecutionException("Parameter injection failed", e);
             } catch (Exception e) {
-                getLog().error("Execution failed for " + config.getGoal() + ": " + e.getMessage());
+                getLog().error(
+                                "Execution failed for "
+                                        + sequenceStep.getGoal()
+                                        + ": "
+                                        + e.getMessage());
                 throw new MojoExecutionException(
-                        "Failed to execute " + config.getArtifactId() + ":" + config.getGoal(), e);
+                        "Failed to execute "
+                                + sequenceStep.getArtifactId()
+                                + ":"
+                                + sequenceStep.getGoal(),
+                        e);
             }
+
+            long duration = System.currentTimeMillis() - startTime;
+            getLog().info(
+                            String.format(
+                                    "---- %s: %sstep %d (%s) completed in %s",
+                                    mojoGoal,
+                                    formattedLabel,
+                                    index,
+                                    currentExecutionId,
+                                    formatDuration(duration)));
         }
     }
 
-    private void resolvePluginCoordinates(ExecutionConfig config) throws MojoExecutionException {
-        String coordString = config.getPluginCoordinates().trim();
+    private String formatDuration(long durationMs) {
+        Duration duration = Duration.ofMillis(durationMs);
+        long hours = duration.toHours();
+        long minutes = duration.toMinutesPart();
+        long seconds = duration.toSecondsPart();
+        long millis = duration.toMillisPart();
+
+        StringBuilder sb = new StringBuilder();
+        if (hours > 0) {
+            sb.append(hours).append("h ");
+        }
+        if (minutes > 0 || hours > 0) {
+            sb.append(minutes).append("m ");
+        }
+        if (hours == 0 && minutes == 0 && millis > 0) {
+            // Show milliseconds only for durations under 1 minute
+            sb.append(seconds).append(".").append(String.format("%03d", millis)).append("s");
+        } else {
+            sb.append(seconds).append("s");
+        }
+        return sb.toString().trim();
+    }
+
+    private void resolvePluginCoordinates(SequenceStep step) throws MojoExecutionException {
+        String coordString = step.getPluginCoordinates().trim();
         String coordinateExecutionId = null;
 
-        if (isPresent(config.getGroupId())
-                || isPresent(config.getArtifactId())
-                || isPresent(config.getGoal())
-                || isPresent(config.getVersion())
-                || isPresent(config.getExecutionId())) {
+        if (isPresent(step.getGroupId())
+                || isPresent(step.getArtifactId())
+                || isPresent(step.getGoal())
+                || isPresent(step.getVersion())
+                || isPresent(step.getExecutionId())) {
             throw new MojoExecutionException(
                     "Invalid plugin configuration: configure either pluginCoordinates or individual fields (groupId, artifactId, goal, etc.), not both!");
         }
@@ -181,13 +243,13 @@ public class SequencerMojo extends AbstractMojo {
 
         String[] parts = coordString.split(":");
         if (parts.length == 3) {
-            config.setGroupId(parts[0].trim());
-            config.setArtifactId(parts[1].trim());
-            config.setGoal(parts[2].trim());
+            step.setGroupId(parts[0].trim());
+            step.setArtifactId(parts[1].trim());
+            step.setGoal(parts[2].trim());
         } else if (parts.length == 2) {
             String identifier = parts[0].trim();
             String goal = parts[1].trim();
-            config.setGoal(goal);
+            step.setGoal(goal);
 
             Set<String> candidateArtifactIds = new HashSet<>();
             candidateArtifactIds.add(identifier);
@@ -224,18 +286,18 @@ public class SequencerMojo extends AbstractMojo {
             }
 
             Plugin resolvedPlugin = matchingPlugins.get(0);
-            config.setGroupId(resolvedPlugin.getGroupId());
-            config.setArtifactId(resolvedPlugin.getArtifactId());
-            config.setExecutionId(coordinateExecutionId);
-            config.setVersion(resolvedPlugin.getVersion());
+            step.setGroupId(resolvedPlugin.getGroupId());
+            step.setArtifactId(resolvedPlugin.getArtifactId());
+            step.setExecutionId(coordinateExecutionId);
+            step.setVersion(resolvedPlugin.getVersion());
         } else {
             throw new MojoExecutionException(
                     "Invalid pluginCoordinates format. Expected: <groupId>:<artifactId>:<goal>[@<executionId>] or <identifier>:<goal>[@<executionId>]");
         }
 
         if (coordinateExecutionId != null && !coordinateExecutionId.isEmpty()) {
-            config.setExecutionId(coordinateExecutionId);
-            String key = String.format("%s:%s", config.getGroupId(), config.getArtifactId());
+            step.setExecutionId(coordinateExecutionId);
+            String key = String.format("%s:%s", step.getGroupId(), step.getArtifactId());
             Plugin plugin = project.getBuild().getPluginsAsMap().get(key);
             if (plugin != null && plugin.getExecutions() != null) {
                 Xpp3Dom pluginExecutionConfig = null;
@@ -247,33 +309,30 @@ public class SequencerMojo extends AbstractMojo {
                 }
                 if (pluginExecutionConfig != null) {
                     Xpp3Dom merged =
-                            Xpp3Dom.mergeXpp3Dom(config.getConfiguration(), pluginExecutionConfig);
-                    config.setConfiguration(merged);
+                            Xpp3Dom.mergeXpp3Dom(step.getConfiguration(), pluginExecutionConfig);
+                    step.setConfiguration(merged);
                 }
-            } else {
-                config.setConfiguration(config.convertToXpp3Dom(config.getRawConfiguration()));
             }
         }
 
-        if (!isPresent(config.getVersion())) {
-            String key = String.format("%s:%s", config.getGroupId(), config.getArtifactId());
+        if (!isPresent(step.getVersion())) {
+            String key = String.format("%s:%s", step.getGroupId(), step.getArtifactId());
             Plugin plugin = project.getBuild().getPluginsAsMap().get(key);
             if (plugin == null || !isPresent(plugin.getVersion())) {
                 throw new MojoExecutionException(
                         "Version not specified in pluginCoordinates and no version found in POM for "
                                 + key);
             }
-            config.setVersion(plugin.getVersion());
+            step.setVersion(plugin.getVersion());
         }
     }
 
-    private String formatCoordinates(ExecutionConfig config, Xpp3Dom defaultConfig) {
+    private String formatCoordinates(SequenceStep config, Xpp3Dom defaultConfig) {
         String groupId = config.getGroupId();
         String artifactId = config.getArtifactId();
         String version = config.getVersion();
         String goal = config.getGoal();
 
-        // Try to derive a short name from artifactId if it follows the conventions.
         String shortName = null;
         if (artifactId.startsWith("maven-")
                 && artifactId.endsWith("-plugin")
@@ -284,8 +343,6 @@ public class SequencerMojo extends AbstractMojo {
             shortName = artifactId.substring(0, artifactId.length() - "-maven-plugin".length());
         }
 
-        // We'll use the short form only if the groupId is one of the well-known ones.
-
         String coord;
         if (shortName != null) {
             coord = shortName + ":" + goal;
@@ -293,14 +350,11 @@ public class SequencerMojo extends AbstractMojo {
             coord = groupId + ":" + artifactId + ":" + version + ":" + goal;
         }
 
-        // Append the executionId if one was specified.
         if (isPresent(config.getExecutionId())) {
             coord += "@" + config.getExecutionId();
         }
 
-        // If the user provided a configuration (i.e. something modified compared to the default),
-        // then mark the coordinate as modified.
-        if (config.getRawConfiguration() != null && !config.getRawConfiguration().isEmpty()) {
+        if (config.getConfiguration() != null && config.getConfiguration().getChildCount() > 0) {
             coord += " (overlay configuration used)";
         }
 
@@ -311,11 +365,11 @@ public class SequencerMojo extends AbstractMojo {
         return value != null && !value.trim().isEmpty();
     }
 
-    List<ExecutionConfig> getExecutions() {
-        return executions;
+    List<SequenceStep> getSteps() {
+        return steps;
     }
 
-    public static class ExecutionConfig {
+    public static class SequenceStep {
         @Parameter private String pluginCoordinates;
 
         @Parameter private String groupId;
@@ -330,7 +384,11 @@ public class SequencerMojo extends AbstractMojo {
 
         @Parameter private String id;
 
-        @Parameter private Map<String, Object> configuration;
+        @Parameter(name = "configuration")
+        private PlexusConfiguration configuration;
+
+        @Parameter(defaultValue = "false")
+        private boolean skip;
 
         private Xpp3Dom configurationDom;
 
@@ -390,38 +448,38 @@ public class SequencerMojo extends AbstractMojo {
             this.id = id;
         }
 
-        public Map<String, Object> getRawConfiguration() {
+        public boolean isSkip() {
+            return skip;
+        }
+
+        public void setSkip(boolean skip) {
+            this.skip = skip;
+        }
+
+        public PlexusConfiguration getRawConfiguration() {
             return configuration;
         }
 
-        public void setRawConfiguration(Map<String, Object> configuration) {
+        public void setRawConfiguration(PlexusConfiguration configuration) {
             this.configuration = configuration;
+            this.configurationDom = null; // Reset cached Xpp3Dom when raw config changes
         }
 
         public Xpp3Dom getConfiguration() {
             if (configurationDom == null && configuration != null) {
-                configurationDom = convertToXpp3Dom(configuration);
+                configurationDom = ConfigurationConverter.toXpp3Dom(configuration);
             }
             return configurationDom;
         }
 
         public void setConfiguration(Xpp3Dom configuration) {
             this.configurationDom = configuration;
-        }
-
-        private Xpp3Dom convertToXpp3Dom(Map<String, Object> rawConfig) {
-            Xpp3Dom dom = new Xpp3Dom("configuration");
-            for (Map.Entry<String, Object> entry : rawConfig.entrySet()) {
-                Xpp3Dom child = new Xpp3Dom(entry.getKey());
-                child.setValue(entry.getValue().toString());
-                dom.addChild(child);
-            }
-            return dom;
+            // PlexusConfiguration can't be set directly from Xpp3Dom; leave raw config as-is
         }
 
         @Override
         public String toString() {
-            return "ExecutionConfig{pluginCoordinates='"
+            return "SequenceStep{pluginCoordinates='"
                     + pluginCoordinates
                     + "', groupId='"
                     + groupId
@@ -436,43 +494,10 @@ public class SequencerMojo extends AbstractMojo {
                     + "', id='"
                     + id
                     + "', configuration='"
-                    + configuration
-                    + "'}";
-        }
-    }
-}
-
-class Xpp3DomUtils {
-
-    public static class ConfigurationConverter {
-        public static Xpp3Dom toXpp3Dom(PlexusConfiguration configuration) {
-            if (configuration == null) {
-                return null;
-            }
-            Xpp3Dom dom = new Xpp3Dom(configuration.getName());
-            // Set the value if any.
-            String value = configuration.getValue(null);
-            if (value != null) {
-                dom.setValue(value);
-            }
-            // Copy attributes.
-            String[] attributeNames = configuration.getAttributeNames();
-            if (attributeNames != null) {
-                for (String attr : attributeNames) {
-                    String attrValue = configuration.getAttribute(attr, null);
-                    if (attrValue != null) {
-                        dom.setAttribute(attr, attrValue);
-                    }
-                }
-            }
-            // Recursively convert children.
-            int childCount = configuration.getChildCount();
-            for (int i = 0; i < childCount; i++) {
-                PlexusConfiguration child = configuration.getChild(i);
-                Xpp3Dom childDom = toXpp3Dom(child);
-                dom.addChild(childDom);
-            }
-            return dom;
+                    + (configuration != null ? configuration.toString() : "null")
+                    + "', skip="
+                    + skip
+                    + "}";
         }
     }
 }

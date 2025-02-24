@@ -1,103 +1,89 @@
-# Maven Sequencer Plugin
+# Seq Maven Plugin
+A Maven plugin for running plugin executions sequentially with flexible configuration.
 
-**Simplify your build by executing multiple Maven plugin goals in a defined, sequential order.**  
-The Maven Sequencer Plugin lets you specify a list of plugin executions (with full or shorthand coordinates) and runs them one after the other with all required configuration and dependency injections intact. This means you can chain together plugins—whether standard ones like Spotless or custom plugins—without worrying about wiring issues or configuration defaults being lost.
+## What It Does
 
----
+The seq-maven-plugin allows you to define and execute a sequence of Maven plugin goals in a specific order. It’s perfect for scenarios where you need to orchestrate multiple plugin executions with custom configurations, ensuring they run one after another.
 
-## Quick Start
+## Key features
 
-Add the plugin to your project's POM, and define the sequence of executions you need. For example, to first check code formatting with Spotless and then run an echo plugin, your configuration might look like this:
+* Run any Maven plugin goal sequentially.
+* Configure steps with plugin coordinates or shorthand identifiers.
+* Merge default and custom configurations.
+* Skip steps conditionally.
+* Detailed logging with execution timing.
 
+## How to Use It
+
+### Installation
+
+Add the plugin to your pom.xml:
 ```xml
-<build>
-  <plugins>
-    <plugin>
-      <groupId>io.github.qudtlib</groupId>
-      <artifactId>sequencer-maven-plugin</artifactId>
-      <version>1.0-SNAPSHOT</version>
-      <executions>
-        <execution>
-          <id>run-sequence</id>
-          <phase>validate</phase>
-          <goals>
-            <goal>sequence</goal>
-          </goals>
-          <configuration>
-            <executions>
-              <!-- Execute Spotless check -->
-              <execution>
-                <id>check-formatting</id>
-                <pluginCoordinates>spotless:check</pluginCoordinates>
-              </execution>
-              <!-- Execute echo plugin (for demonstration) -->
-              <execution>
-                <id>echo-message</id>
-                <pluginCoordinates>com.github.ekryd.echo-maven-plugin:echo-maven-plugin:echo</pluginCoordinates>
-                <configuration>
-                  <message>Hello, world!</message>
-                </configuration>
-              </execution>
-            </executions>
-          </configuration>
-        </execution>
-      </executions>
-    </plugin>
-  </plugins>
-</build>
+
+<plugin>
+    <groupId>io.github.qudtlib</groupId>
+    <artifactId>seq-maven-plugin</artifactId>
+    <version>[choose a version]</version>
+</plugin>
 ```
 
-When you run your Maven build (for example, with mvn validate), the Sequencer plugin will:
+### Example Configuration
 
-1. Resolve each plugin's coordinates and merge any default configuration from the plugin descriptor with your custom overlay.
-2. Log a clear, concise message showing which plugin execution is running.
-3. Execute each plugin goal sequentially, ensuring that all parameters (such as project, baseDir, repositories, etc.) are properly injected by Maven’s container.
+Add an execution block to run plugin goals sequentially:
+```xml
 
-Why Use Maven Sequencer Plugin?
+<plugin>
+    <groupId>io.github.qudtlib</groupId>
+    <artifactId>seq-maven-plugin</artifactId>
+    <version>1.1-SNAPSHOT</version>
+    <executions>
+        <execution>
+            <id>run-sequence</id>
+            <phase>package</phase>
+            <goals>
+                <goal>run</goal>
+            </goals>
+            <configuration>
+                <label>My Sequence</label>
+                <steps>
+                    <step>
+                        <pluginCoordinates>spotless:check</pluginCoordinates>
+                    </step>
+                    <step>
+                        <pluginCoordinates>org.apache.maven.plugins:maven-compiler-plugin:compile</pluginCoordinates>
+                        <configuration>
+                            <source>17</source>
+                            <target>17</target>
+                        </configuration>
+                    </step>
+                </steps>
+            </configuration>
+        </execution>
+    </executions>
+</plugin>
+```
 
-* Control Execution Order: Some plugin goals must run in a specific order. The Sequencer enforces that order reliably.
-* Simplified Configuration: Use short or full coordinate formats as needed, and overlay configuration without losing default values.
-* Transparent Logging: Easily see which plugin (and even which execution) is running, with visual markers if the configuration was modified.
-* Robust Integration: Leverages Maven’s own plugin management system, ensuring that target plugins are wired correctly and run as if invoked directly by Maven.
+### Running It
 
-##Detailed Usage
-###Defining Executions
+Execute the plugin with:
+```bash
 
-Within the <configuration> element of your Sequencer plugin, you define an <executions> list. Each execution may use either:
+mvn seq:run
+```
 
-* Short Form: For standard plugins (e.g. spotless:check), or
-* Long Form: For custom or ambiguous plugins (e.g. com.github.ekryd.echo-maven-plugin:echo-maven-plugin:echo).
+Or bind it to a lifecycle phase (e.g., package) as shown above and run:
+```bash
 
-You can also include an execution id by using the @ syntax (for example, echo:echo@strict) or by configuring it separately.
+mvn package
+```
 
-### Configuration Merging
+### Configuration Options
 
-The plugin reads the default configuration from the target plugin’s descriptor and merges it with your user-specified overlay. If any overlay is used, this fact is reflected in the log output. This merging ensures that all required parameters (such as baseDir, buildDir, and others) are properly set.
+    <steps>: List of <step> elements to execute.
+    <pluginCoordinates>: Format as groupId:artifactId:goal[@executionId] or shorthand identifier:goal.
+    <configuration>: Custom configuration for the step (merged with defaults).
+    <skip>: Set to true to skip a step (default: false).
+    <label>: Optional label for log output.
 
-### Logging
-
-Before each execution, the plugin logs the effective coordinate for the target plugin:
-
-1. Short form if the plugin follows common naming conventions.
-2. Long form if necessary.
-3. An appended execution id (if provided) and a note if overlay configuration is used.
-
-## Requirements
-
-* Maven Version: Tested with Maven 3.9.8
-* JDK: Java 17 or later
-
-## Troubleshooting
-
-### Missing Defaults / Wiring Issues:
-* If you encounter errors regarding missing or null parameters (for example, a required parameter like “level” in the echo plugin), verify that your overlay configuration is not inadvertently overriding the plugin descriptor defaults. Use Maven’s debug logging (mvn -X) to inspect how configurations are merged.
-
-* Dependency Conflicts: Run mvn help:effective-pom and mvn dependency:tree to ensure that your dependency versions are consistent with Maven 3.9.8.
-
-## Conclusion
-
-The Maven Sequencer Plugin offers a straightforward way to run multiple Maven plugin goals in a controlled sequence, preserving all the wiring and default injections you’d normally expect in a standard Maven lifecycle. Its flexible coordinate formatting and transparent configuration merging help keep your build process clear and manageable.
-
-If you have questions or run into issues, please open an issue on GitHub.
-
-Happy building!
+# License
+Licensed under the Apache License 2.0 (LICENSE).

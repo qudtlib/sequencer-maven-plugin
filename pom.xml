@@ -3,11 +3,11 @@
     <modelVersion>4.0.0</modelVersion>
 
     <groupId>io.github.qudtlib</groupId>
-    <artifactId>sequencer-maven-plugin</artifactId>
+    <artifactId>seq-maven-plugin</artifactId>
     <version>1.0-SNAPSHOT</version>
     <packaging>maven-plugin</packaging>
-    <name>Maven Sequencer Plugin</name>
-    <url>https://github.com/qudtlib/sequencer-maven-plugin/</url>
+    <name>Maven Seq Plugin</name>
+    <url>https://github.com/qudtlib/seq-maven-plugin/</url>
     <description>Maven plugin for running maven plugin executions sequentially</description>
     <developers>
         <developer>
@@ -25,9 +25,9 @@
         </license>
     </licenses>
     <scm>
-        <connection>scm:git:https://github.com/qudtlib/sequencer-maven-plugin.git</connection>
-        <developerConnection>scm:git:https://github.com/qudtlib/sequencer-maven-plugin.git</developerConnection>
-        <url>https://github.com/qudtlib/sequencer-maven-plugin/tree/master</url>
+        <connection>scm:git:https://github.com/qudtlib/seq-maven-plugin.git</connection>
+        <developerConnection>scm:git:https://github.com/qudtlib/seq-maven-plugin.git</developerConnection>
+        <url>https://github.com/qudtlib/seq-maven-plugin/tree/master</url>
     </scm>
 
 
@@ -106,7 +106,7 @@
                                 <goal>helpmojo</goal>
                             </goals>
                             <configuration>
-                                <helpPackageName>io.github.qudtlib.maven.sequencer</helpPackageName>
+                                <helpPackageName>io.github.qudtlib.maven.seq</helpPackageName>
                             </configuration>
                         </execution>
                     </executions>
@@ -271,67 +271,76 @@
                     </plugin>
                     <plugin>
                         <groupId>io.github.qudtlib</groupId>
-                        <artifactId>sequencer-maven-plugin</artifactId>
+                        <artifactId>seq-maven-plugin</artifactId>
                         <version>${project.version}</version>
-                        <executions>
-                            <execution>
-                                <id>test-sequencing-echo-plugin</id>
-                                <phase>test</phase>
-                                <goals>
-                                    <goal>sequence</goal>
-                                </goals>
-                                <configuration>
-                                    <executions>
-                                        <execution>
-                                            <id>seq-first</id>
-                                            <pluginCoordinates>com.github.ekryd.echo-maven-plugin:echo-maven-plugin:echo</pluginCoordinates>
-                                            <configuration>
-                                                <message>first plugin execution</message>
-                                            </configuration>
-                                        </execution>
-                                        <execution>
-                                            <pluginCoordinates>com.github.ekryd.echo-maven-plugin:echo-maven-plugin:echo</pluginCoordinates>
-                                            <configuration>
-                                                <message>second plugin execution</message>
-                                            </configuration>
-                                        </execution>
-                                    </executions>
-                                </configuration>
-                            </execution>
-                        </executions>
-                    </plugin>
-                </plugins>
-            </build>
-        </profile>
-        <profile>
-            <id>test2</id>
-            <build>
-                <plugins>
-                    <plugin>
-                        <groupId>io.github.qudtlib</groupId>
-                        <artifactId>sequencer-maven-plugin</artifactId>
-                        <version>${project.version}</version>
-                        <executions>
-                            <execution>
-                                <id>test-sequencing-spotless-plugin</id>
-                                <phase>test</phase>
-                                <goals>
-                                    <goal>sequence</goal>
-                                </goals>
-                                <configuration>
-                                    <executions>
-                                        <execution>
-                                            <id>seq-first</id>
-                                            <pluginCoordinates>spotless:check</pluginCoordinates>
-                                        </execution>
-                                        <execution>
-                                            <id>seq-second</id>
-                                            <pluginCoordinates>spotless:apply</pluginCoordinates>
-                                        </execution>
-                                    </executions>
-                                </configuration>
-                            </execution>
-                        </executions>
+                            <executions>
+                                <execution>
+                                    <id>test-sequencing-echo-plugin</id>
+                                    <phase>test</phase>
+                                    <goals>
+                                        <goal>run</goal>
+                                    </goals>
+                                    <configuration>
+                                        <label>print messages</label>
+                                        <steps>
+                                            <step>
+                                                <id>seq-first</id>
+                                                <pluginCoordinates>com.github.ekryd.echo-maven-plugin:echo-maven-plugin:echo</pluginCoordinates>
+                                                <configuration>
+                                                    <message>first plugin execution</message>
+                                                </configuration>
+                                            </step>
+                                            <step>
+                                                <pluginCoordinates>com.github.ekryd.echo-maven-plugin:echo-maven-plugin:echo</pluginCoordinates>
+                                                <id>seq-second</id>
+                                                <configuration>
+                                                    <message>second plugin execution</message>
+                                                </configuration>
+                                            </step>
+                                        </steps>
+                                    </configuration>
+                                </execution>
+                                <execution>
+                                    <id>test-sequencing-spotless-plugin</id>
+                                    <phase>test</phase>
+                                    <goals>
+                                        <goal>run</goal>
+                                    </goals>
+                                    <configuration>
+                                        <label>format sources</label>
+                                        <steps>
+                                            <step>
+                                                <id>seq-first</id>
+                                                <pluginCoordinates>spotless:check</pluginCoordinates>
+                                            </step>
+                                            <step>
+                                                <id>seq-second</id>
+                                                <pluginCoordinates>spotless:apply</pluginCoordinates>
+                                            </step>
+                                        </steps>
+                                    </configuration>
+                                </execution>
+                                <execution>
+                                    <id>test-sequencing-sequences</id>
+                                    <phase>test</phase>
+                                    <goals>
+                                        <goal>run</goal>
+                                    </goals>
+                                    <configuration>
+                                        <label>run sequences</label>
+                                        <steps>
+                                            <step>
+                                                <id>first-sequence</id>
+                                                <pluginCoordinates>seq:run@test-sequencing-echo-plugin</pluginCoordinates>
+                                            </step>
+                                            <step>
+                                                <id>second-sequence</id>
+                                                <pluginCoordinates>seq:run@test-sequencing-spotless-plugin</pluginCoordinates>
+                                            </step>
+                                        </steps>
+                                    </configuration>
+                                </execution>
+                            </executions>
                     </plugin>
                 </plugins>
             </build>
